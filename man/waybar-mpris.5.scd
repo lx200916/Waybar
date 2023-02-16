@@ -50,19 +50,23 @@ The *mpris* module displays currently playing media via libplayerctl.
 
 *artist-len*: ++
 	typeof: integer ++
-	Maximum length of the Artist tag (in Unicode codepoints).
+	Maximum length of the Artist tag (Wide/Fullwidth Unicode characters
+	count as two).
 
 *album-len*: ++
 	typeof: integer ++
-	Maximum length of the Album tag (in Unicode codepoints).
+	Maximum length of the Album tag (Wide/Fullwidth Unicode characters count
+	as two).
 
 *title-len*: ++
 	typeof: integer ++
-	Maximum length of the Title tag (in Unicode codepoints).
+	Maximum length of the Title tag (Wide/Fullwidth Unicode characters count
+	as two).
 
 *dynamic-len*: ++
 	typeof: integer ++
-	Maximum length of the Dynamic tag (in Unicode codepoints).
+	Maximum length of the Dynamic tag (Wide/Fullwidth Unicode characters
+	count as two).
 
 *dynamic-priority* ++ 
 	typeof: []string ++
