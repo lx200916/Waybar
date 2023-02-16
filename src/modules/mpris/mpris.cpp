@@ -189,7 +189,7 @@ auto Mpris::getAlbumStr(const PlayerInfo &info, bool truncated) -> std::string {
 }
 
 auto Mpris::getTitleStr(const PlayerInfo &info, bool truncated) -> std::string {
-  std::string title = info.artist.value_or(std::string());
+  std::string title = info.title.value_or(std::string());
   return (truncated && title_len_ >= 0) ? title.substr(0, title_len_) : title;
 }
 
@@ -251,9 +251,9 @@ auto Mpris::getDynamicStr(const PlayerInfo &info, bool truncated, bool html) -> 
     }
   }
 
-  if (showArtist) dynamic << *info.artist << " - ";
-  if (showAlbum) dynamic << *info.album << " - ";
-  if (showTitle) dynamic << *info.title;
+  if (showArtist) dynamic << artist << " - ";
+  if (showAlbum) dynamic << album << " - ";
+  if (showTitle) dynamic << title;
   if (showLength) {
     dynamic << " ";
     if (html) {
