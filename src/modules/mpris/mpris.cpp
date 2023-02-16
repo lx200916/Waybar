@@ -192,8 +192,9 @@ auto Mpris::getIcon(const Json::Value& icons, const std::string& key) -> std::st
 // Japanese characters, emoji, etc are twice as long in mono fonts
 auto utf8_char_wide(const std::string& str, size_t pos) -> bool {
   uint32_t c = (unsigned char)str[pos];
-  if (c <= 127) return false;
-  else if ((c & 0xE0) == 0xC0) {
+  if (c <= 127) {
+    return false;
+  } else if ((c & 0xE0) == 0xC0) {
     if (pos + 1 >= str.length()) return false;
     c = (str[pos + 1] & 0x3F) | ((c & 0x1F) << 6);
   } else if ((c & 0xF0) == 0xE0) {
@@ -201,7 +202,8 @@ auto utf8_char_wide(const std::string& str, size_t pos) -> bool {
     c = (str[pos + 2] & 0x3F) | ((str[pos + 1] & 0x3F) << 6) | ((c & 0x1F) << 12);
   } else if ((c & 0xF8) == 0xF0) {
     if (pos + 3 >= str.length()) return false;
-    c = (str[pos + 3] & 0x3F) | ((str[pos + 2] & 0x3F) << 6) | ((str[pos + 1] & 0x3F) << 12) | ((c & 0x1F) << 18);
+    c = (str[pos + 3] & 0x3F) | ((str[pos + 2] & 0x3F) << 6) | ((str[pos + 1] & 0x3F) << 12) |
+        ((c & 0x1F) << 18);
   }
   return char_is_wide(c);
 }
@@ -211,51 +213,44 @@ auto utf8_length(const std::string& str) -> size_t {
   for (i = len = 0; i < str.length(); i++) {
     unsigned char c = (unsigned char)str[i];
     len += utf8_char_wide(str, i) ? 2 : 1;
-    if (c <= 127)
-      continue;
-    else if ((c & 0xE0) == 0xC0)
+    if (c <= 127) {
+      continue;  // ascii
+    } else if ((c & 0xE0) == 0xC0) {
       i += 1;
-    else if ((c & 0xF0) == 0xE0)
+    } else if ((c & 0xF0) == 0xE0) {
       i += 2;
-    else if ((c & 0xF8) == 0xF0)
+    } else if ((c & 0xF8) == 0xF0) {
       i += 3;
-    else
+    } else {
       return str.length();  // invalid utf8
+    }
   }
   return len;
 }
 
 std::string utf8_truncate(const std::string& str, size_t len) {
-  if (len == 0) {
-    return std::string();
-  }
-  if (len == std::string::npos) {
-    return str;
-  }
+  if (len == 0) return std::string();
+  if (len == std::string::npos) return str;
   size_t pos = std::string::npos;
   size_t i = 0, u = 0;
   for (i = u = 0; i < str.length(); i++) {
-    if (u <= len) {
-      pos = i;
-    } else {
-      break;
-    }
+    if (u <= len) pos = i;
     u += utf8_char_wide(str, i) ? 2 : 1;
+    if (u > len) break;
     unsigned char c = (unsigned char)str[i];
-    if (c <= 127)
-      continue;
-    else if ((c & 0xE0) == 0xC0)
+    if (c <= 127) {
+      continue;  // ascii
+    } else if ((c & 0xE0) == 0xC0) {
       i += 1;
-    else if ((c & 0xF0) == 0xE0)
+    } else if ((c & 0xF0) == 0xE0) {
       i += 2;
-    else if ((c & 0xF8) == 0xF0)
+    } else if ((c & 0xF8) == 0xF0) {
       i += 3;
-    else
+    } else {
       return str.substr(0, len);  // invalid utf8
+    }
   }
-  if (u <= len) {
-    pos = i;
-  }
+  if (u <= len) pos = i;
   return str.substr(0, pos);
 }
 
@@ -264,11 +259,8 @@ auto truncate(const std::string& s, const std::string& ellipsis, size_t max_len)
   size_t len = utf8_length(s);
   if (len > max_len) {
     size_t ellipsis_len = utf8_length(ellipsis);
-    if (max_len >= ellipsis_len) {
-      return utf8_truncate(s, max_len - ellipsis_len) + ellipsis;
-    } else {
-      return std::string();
-    }
+    return (max_len >= ellipsis_len) ? utf8_truncate(s, max_len - ellipsis_len) + ellipsis
+                                     : std::string();
   }
   return s;
 }
@@ -291,10 +283,7 @@ auto Mpris::getTitleStr(const PlayerInfo& info, bool truncated) -> std::string {
 auto Mpris::getLengthStr(const PlayerInfo& info, bool truncated) -> std::string {
   if (info.length.has_value()) {
     std::string length = info.length.value();
-    if (truncated && length.substr(0, 3) == "00:") {
-      return length.substr(3);
-    }
-    return length;
+    return (truncated && length.substr(0, 3) == "00:") ? length.substr(3) : length;
   }
   return std::string();
 }
@@ -302,10 +291,7 @@ auto Mpris::getLengthStr(const PlayerInfo& info, bool truncated) -> std::string 
 auto Mpris::getPositionStr(const PlayerInfo& info, bool truncated) -> std::string {
   if (info.position.has_value()) {
     std::string position = info.position.value();
-    if (truncated && position.substr(0, 3) == "00:") {
-      return position.substr(3);
-    }
-    return position;
+    return (truncated && position.substr(0, 3) == "00:") ? position.substr(3) : position;
   }
   return std::string();
 }
@@ -332,18 +318,10 @@ auto Mpris::getDynamicStr(const PlayerInfo& info, bool truncated, bool html) -> 
 
   if (truncated && dynamic_len_ >= 0) {
     size_t dynamicLen = dynamic_len_;
-    if (artistLen != 0) {
-      artistLen += 3;
-    }
-    if (albumLen != 0) {
-      albumLen += 3;
-    }
-    if (lengthLen != 0) {
-      lengthLen += 3;
-    }
-    if (posLen != 0) {
-      posLen += 3;
-    }
+    if (showArtist) artistLen += 3;
+    if (showAlbum) albumLen += 3;
+    if (showLength) lengthLen += 3;
+    if (showPos) posLen += 3;
 
     size_t totalLen = 0;
 
@@ -390,23 +368,15 @@ auto Mpris::getDynamicStr(const PlayerInfo& info, bool truncated, bool html) -> 
   if (showTitle) dynamic << title;
   if (showLength || showPos) {
     dynamic << " ";
-    if (html) {
-      dynamic << "<small>";
-    }
+    if (html) dynamic << "<small>";
     dynamic << '[';
     if (showPos) {
       dynamic << position;
-      if (showLength) {
-        dynamic << '/';
-      }
+      if (showLength) dynamic << '/';
     }
-    if (showLength) {
-      dynamic << length;
-    }
+    if (showLength) dynamic << length;
     dynamic << ']';
-    if (html) {
-      dynamic << "</small>";
-    }
+    if (html) dynamic << "</small>";
   }
   return dynamic.str();
 }
