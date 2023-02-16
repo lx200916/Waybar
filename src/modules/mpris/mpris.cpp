@@ -215,10 +215,10 @@ auto Mpris::getDynamicStr(const PlayerInfo &info, bool truncated) -> std::string
 
   if (truncated && dynamic_len_ >= 0) {
     size_t dynamicLen = dynamic_len_;
-    size_t artistLen = artist.length() + 3;
-    size_t albumLen = album.length() + 3;
+    size_t artistLen = showArtist ? artist.length() + 3 : 0;
+    size_t albumLen = showAlbum ? album.length() + 3 : 0;
     size_t titleLen = title.length();
-    size_t lengthLen = length.length() + 1;
+    size_t lengthLen = showLength ? length.length() + 1 : 0;
 
     size_t totalLen = 0;
 
