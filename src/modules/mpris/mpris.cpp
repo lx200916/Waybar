@@ -547,14 +547,18 @@ auto Mpris::getPlayerInfo() -> std::optional<PlayerInfo> {
 
   {
     auto position_ = playerctl_player_get_position(player, &error);
-    if (error) goto errorexit;
-
-    spdlog::debug("mpris[{}]: position = {}", info.name, position_);
-    std::chrono::microseconds len = std::chrono::microseconds(position_);
-    auto len_h = std::chrono::duration_cast<std::chrono::hours>(len);
-    auto len_m = std::chrono::duration_cast<std::chrono::minutes>(len - len_h);
-    auto len_s = std::chrono::duration_cast<std::chrono::seconds>(len - len_m);
-    info.position = fmt::format("{:02}:{:02}:{:02}", len_h.count(), len_m.count(), len_s.count());
+    if (error) {
+      // it's fine to have an error here because not all players report a position
+      g_error_free(error);
+      error = nullptr;
+    } else {
+      spdlog::debug("mpris[{}]: position = {}", info.name, position_);
+      std::chrono::microseconds len = std::chrono::microseconds(position_);
+      auto len_h = std::chrono::duration_cast<std::chrono::hours>(len);
+      auto len_m = std::chrono::duration_cast<std::chrono::minutes>(len - len_h);
+      auto len_s = std::chrono::duration_cast<std::chrono::seconds>(len - len_m);
+      info.position = fmt::format("{:02}:{:02}:{:02}", len_h.count(), len_m.count(), len_s.count());
+    }
   }
 
   return info;
