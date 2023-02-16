@@ -51,7 +51,7 @@ Mpris::Mpris(const std::string& id, const Json::Value& config)
   }
   if (tooltipEnabled()) {
     if (config_["tooltip-format"].isString()) {
-      tooltip_ = config_["format"].asString();
+      tooltip_ = config_["tooltip-format"].asString();
     }
     if (config_["tooltip-format-playing"].isString()) {
       tooltip_playing_ = config_["tooltip-format-playing"].asString();
@@ -200,7 +200,7 @@ auto Mpris::getLengthStr(const PlayerInfo &info, bool from_dynamic) -> std::stri
   return std::string();
 }
 
-auto Mpris::getDynamicStr(const PlayerInfo &info, bool truncated) -> std::string {
+auto Mpris::getDynamicStr(const PlayerInfo &info, bool truncated, bool html) -> std::string {
   std::string artist = getArtistStr(info, truncated);
   std::string album = getAlbumStr(info, truncated);
   std::string title = getTitleStr(info, truncated);
@@ -254,9 +254,16 @@ auto Mpris::getDynamicStr(const PlayerInfo &info, bool truncated) -> std::string
   if (showArtist) dynamic << *info.artist << " - ";
   if (showAlbum) dynamic << *info.album << " - ";
   if (showTitle) dynamic << *info.title;
-  if (showLength)
-    dynamic << " "
-            << "<small>" << length << "</small>";
+  if (showLength) {
+    dynamic << " ";
+    if (html) {
+      dynamic << "<small>";
+    }
+    dynamic << length;
+    if (html) {
+      dynamic << "</small>";
+    }
+  }
   return dynamic.str();
 }
 
@@ -505,9 +512,9 @@ auto Mpris::update() -> void {
     auto label_format = fmt::format(
         fmt::runtime(formatstr), fmt::arg("player", info.name),
         fmt::arg("status", info.status_string), fmt::arg("artist", getArtistStr(info, true)),
-        fmt::arg("title", getTitleStr(info, true)), fmt::arg("album", getArtistStr(info, true)),
+        fmt::arg("title", getTitleStr(info, true)), fmt::arg("album", getAlbumStr(info, true)),
         fmt::arg("length", getLengthStr(info, false)),
-        fmt::arg("dynamic", getArtistStr(info, true)),
+        fmt::arg("dynamic", getDynamicStr(info, true, true)),
         fmt::arg("player_icon", getIcon(config_["player-icons"], info.name)),
         fmt::arg("status_icon", getIcon(config_["status-icons"], info.status_string)));
 
@@ -523,9 +530,9 @@ auto Mpris::update() -> void {
           fmt::arg("status", info.status_string),
           fmt::arg("artist", getArtistStr(info, tooltip_len_limits_)),
           fmt::arg("title", getTitleStr(info, tooltip_len_limits_)),
-          fmt::arg("album", getArtistStr(info, tooltip_len_limits_)),
+          fmt::arg("album", getAlbumStr(info, tooltip_len_limits_)),
           fmt::arg("length", getLengthStr(info, false)),
-          fmt::arg("dynamic", getArtistStr(info, tooltip_len_limits_)),
+          fmt::arg("dynamic", getDynamicStr(info, tooltip_len_limits_, false)),
           fmt::arg("player_icon", getIcon(config_["player-icons"], info.name)),
           fmt::arg("status_icon", getIcon(config_["status-icons"], info.status_string)));
 
