@@ -48,7 +48,7 @@ class Mpris : public AModule {
   auto getAlbumStr(const PlayerInfo&, bool) -> std::string;
   auto getTitleStr(const PlayerInfo&, bool) -> std::string;
   auto getLengthStr(const PlayerInfo&, bool) -> std::string;
-  auto getDynamicStr(const PlayerInfo&, bool) -> std::string;
+  auto getDynamicStr(const PlayerInfo&, bool, bool) -> std::string;
 
   Gtk::Box box_;
   Gtk::Label label_;
