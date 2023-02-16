@@ -1,10 +1,10 @@
-#include "modules/mpris/mpris.hpp"
-
 #include <fmt/core.h>
 
 #include <optional>
 #include <sstream>
 #include <string>
+
+#include "modules/mpris/mpris.hpp"
 
 extern "C" {
 #include <playerctl/playerctl.h>
@@ -26,8 +26,11 @@ Mpris::Mpris(const std::string& id, const Json::Value& config)
       album_len_(-1),
       title_len_(-1),
       dynamic_len_(-1),
-      dynamic_prio_({"title", "length", "artist", "album"}),
+      dynamic_prio_({"title", "length", "position", "artist", "album"}),
+      truncate_hours_(true),
       tooltip_len_limits_(false),
+      // this character is used in Gnome so it's fine to use it here
+      ellipsis_(u8"\u2026"),
       interval_(0),
       player_("playerctld"),
       manager(),
@@ -48,6 +51,9 @@ Mpris::Mpris(const std::string& id, const Json::Value& config)
   }
   if (config_["format-stopped"].isString()) {
     format_stopped_ = config_["format-stopped"].asString();
+  }
+  if (config_["ellipsis"].isString()) {
+    ellipsis_ = config_["ellipsis"].asString();
   }
   if (tooltipEnabled()) {
     if (config_["tooltip-format"].isString()) {
@@ -89,6 +95,9 @@ Mpris::Mpris(const std::string& id, const Json::Value& config)
     }
   }
 
+  if (config_["truncate-hours"].isBool()) {
+    truncate_hours_ = config["truncate-hours"].asBool();
+  }
   if (config_["interval"].isUInt()) {
     interval_ = std::chrono::seconds(config_["interval"].asUInt());
   }
@@ -178,47 +187,152 @@ auto Mpris::getIcon(const Json::Value& icons, const std::string& key) -> std::st
   return "";
 }
 
-auto Mpris::getArtistStr(const PlayerInfo &info, bool truncated) -> std::string {
+// because abruptly cut titles look weird
+
+// adapted from https://stackoverflow.com/questions/30995246/substring-of-a-stdstring-in-utf-8-c11
+auto utf8_length(const std::string& str) -> size_t {
+  size_t i = 0, len = 0;
+  for (i = len = 0; i < str.length(); i++, len++) {
+    unsigned char c = (unsigned char)str[i];
+    if (c <= 127)
+      continue;
+    else if ((c & 0xE0) == 0xC0)
+      i += 1;
+    else if ((c & 0xF0) == 0xE0)
+      i += 2;
+    else if ((c & 0xF8) == 0xF0)
+      i += 3;
+    else if ((c & 0xFC) == 0xF8)
+      i += 4;
+    else if ((c & 0xFE) == 0xFC)
+      i += 5;
+    else
+      return str.length();  // invalid utf8
+  }
+  return len;
+}
+std::string utf8_truncate(const std::string& str, size_t len) {
+  if (len == 0) {
+    return std::string();
+  }
+  if (len == std::string::npos) {
+    return str;
+  }
+  size_t pos = std::string::npos;
+  size_t i = 0, u = 0;
+  for (i = u = 0; i < str.length(); i++, u++) {
+    if (u <= len) {
+      pos = i;
+    } else {
+      break;
+    }
+    unsigned char c = (unsigned char)str[i];
+    if (c <= 127)
+      continue;
+    else if ((c & 0xE0) == 0xC0)
+      i += 1;
+    else if ((c & 0xF0) == 0xE0)
+      i += 2;
+    else if ((c & 0xF8) == 0xF0)
+      i += 3;
+    else if ((c & 0xFC) == 0xF8)
+      i += 4;
+    else if ((c & 0xFE) == 0xFC)
+      i += 5;
+    else
+      return str.substr(0, len);  // invalid utf8
+  }
+  if (u <= len) {
+    pos = i;
+  }
+  return str.substr(0, pos);
+}
+
+auto truncate(const std::string& s, const std::string& ellipsis, size_t max_len) -> std::string {
+  if (max_len == 0) return std::string();
+  size_t len = utf8_length(s);
+  if (len > max_len) {
+    size_t ellipsis_len = utf8_length(ellipsis);
+    if (max_len >= ellipsis_len) {
+      return utf8_truncate(s, max_len - ellipsis_len) + ellipsis;
+    } else {
+      return std::string();
+    }
+  }
+  return s;
+}
+
+auto Mpris::getArtistStr(const PlayerInfo& info, bool truncated) -> std::string {
   std::string artist = info.artist.value_or(std::string());
-  return (truncated && artist_len_ >= 0) ? artist.substr(0, artist_len_) : artist;
+  return (truncated && artist_len_ >= 0) ? truncate(artist, ellipsis_, artist_len_) : artist;
 }
 
-auto Mpris::getAlbumStr(const PlayerInfo &info, bool truncated) -> std::string {
+auto Mpris::getAlbumStr(const PlayerInfo& info, bool truncated) -> std::string {
   std::string album = info.album.value_or(std::string());
-  return (truncated && album_len_ >= 0) ? album.substr(0, album_len_) : album;
+  return (truncated && album_len_ >= 0) ? truncate(album, ellipsis_, album_len_) : album;
 }
 
-auto Mpris::getTitleStr(const PlayerInfo &info, bool truncated) -> std::string {
+auto Mpris::getTitleStr(const PlayerInfo& info, bool truncated) -> std::string {
   std::string title = info.title.value_or(std::string());
-  return (truncated && title_len_ >= 0) ? title.substr(0, title_len_) : title;
+  return (truncated && title_len_ >= 0) ? truncate(title, ellipsis_, title_len_) : title;
 }
 
-auto Mpris::getLengthStr(const PlayerInfo &info, bool from_dynamic) -> std::string {
+auto Mpris::getLengthStr(const PlayerInfo& info, bool truncated) -> std::string {
   if (info.length.has_value()) {
-    return from_dynamic ? ("[" + info.length.value() + "]") : info.length.value();
+    std::string length = info.length.value();
+    if (truncated && length.substr(0, 3) == "00:") {
+      return length.substr(3);
+    }
+    return length;
   }
   return std::string();
 }
 
-auto Mpris::getDynamicStr(const PlayerInfo &info, bool truncated, bool html) -> std::string {
+auto Mpris::getPositionStr(const PlayerInfo& info, bool truncated) -> std::string {
+  if (info.position.has_value()) {
+    std::string position = info.position.value();
+    if (truncated && position.substr(0, 3) == "00:") {
+      return position.substr(3);
+    }
+    return position;
+  }
+  return std::string();
+}
+
+auto Mpris::getDynamicStr(const PlayerInfo& info, bool truncated, bool html) -> std::string {
   std::string artist = getArtistStr(info, truncated);
   std::string album = getAlbumStr(info, truncated);
   std::string title = getTitleStr(info, truncated);
-  std::string length = getLengthStr(info, true);
+  std::string length = getLengthStr(info, truncated && truncate_hours_);
+  // keep position format same as length format
+  std::string position = getPositionStr(info, truncated && truncate_hours_ && length.length() < 6);
 
-  std::stringstream dynamic;
-  bool showArtist, showAlbum, showTitle, showLength;
-  showArtist = artist.length() != 0;
-  showAlbum = album.length() != 0;
-  showTitle = title.length() != 0;
-  showLength = length.length() != 0;
+  size_t artistLen = utf8_length(artist);
+  size_t albumLen = utf8_length(album);
+  size_t titleLen = utf8_length(title);
+  size_t lengthLen = length.length();
+  size_t posLen = position.length();
+
+  bool showArtist = artistLen != 0;
+  bool showAlbum = albumLen != 0;
+  bool showTitle = titleLen != 0;
+  bool showLength = lengthLen != 0;
+  bool showPos = posLen != 0;
 
   if (truncated && dynamic_len_ >= 0) {
     size_t dynamicLen = dynamic_len_;
-    size_t artistLen = showArtist ? artist.length() + 3 : 0;
-    size_t albumLen = showAlbum ? album.length() + 3 : 0;
-    size_t titleLen = title.length();
-    size_t lengthLen = showLength ? length.length() + 1 : 0;
+    if (artistLen != 0) {
+      artistLen += 3;
+    }
+    if (albumLen != 0) {
+      albumLen += 3;
+    }
+    if (lengthLen != 0) {
+      lengthLen += 3;
+    }
+    if (posLen != 0) {
+      posLen += 3;
+    }
 
     size_t totalLen = 0;
 
@@ -246,20 +360,39 @@ auto Mpris::getDynamicStr(const PlayerInfo &info, bool truncated, bool html) -> 
           showLength = false;
         } else {
           totalLen += lengthLen;
+          posLen = std::max((size_t)2, posLen) - 2;
+        }
+      } else if (*it == "position") {
+        if (totalLen + posLen > dynamicLen) {
+          showPos = false;
+        } else {
+          totalLen += posLen;
+          lengthLen = std::max((size_t)2, lengthLen) - 2;
         }
       }
     }
   }
 
+  std::stringstream dynamic;
   if (showArtist) dynamic << artist << " - ";
   if (showAlbum) dynamic << album << " - ";
   if (showTitle) dynamic << title;
-  if (showLength) {
+  if (showLength || showPos) {
     dynamic << " ";
     if (html) {
       dynamic << "<small>";
     }
-    dynamic << length;
+    dynamic << '[';
+    if (showPos) {
+      dynamic << position;
+      if (showLength) {
+        dynamic << '/';
+      }
+    }
+    if (showLength) {
+      dynamic << length;
+    }
+    dynamic << ']';
     if (html) {
       dynamic << "</small>";
     }
@@ -412,6 +545,18 @@ auto Mpris::getPlayerInfo() -> std::optional<PlayerInfo> {
   }
   if (error) goto errorexit;
 
+  {
+    auto position_ = playerctl_player_get_position(player, &error);
+    if (error) goto errorexit;
+
+    spdlog::debug("mpris[{}]: position = {}", info.name, position_);
+    std::chrono::microseconds len = std::chrono::microseconds(position_);
+    auto len_h = std::chrono::duration_cast<std::chrono::hours>(len);
+    auto len_m = std::chrono::duration_cast<std::chrono::minutes>(len - len_h);
+    auto len_s = std::chrono::duration_cast<std::chrono::seconds>(len - len_m);
+    info.position = fmt::format("{:02}:{:02}:{:02}", len_h.count(), len_m.count(), len_s.count());
+  }
+
   return info;
 
 errorexit:
@@ -508,12 +653,20 @@ auto Mpris::update() -> void {
       break;
   }
 
+  std::string length = getLengthStr(info, truncate_hours_);
+  std::string tooltipLength =
+      (tooltip_len_limits_ || length.length() > 5) ? length : getLengthStr(info, false);
+  // keep position format same as length format
+  std::string position = getPositionStr(info, truncate_hours_ && length.length() < 6);
+  std::string tooltipPosition =
+      (tooltip_len_limits_ || position.length() > 5) ? position : getPositionStr(info, false);
+
   try {
     auto label_format = fmt::format(
         fmt::runtime(formatstr), fmt::arg("player", info.name),
         fmt::arg("status", info.status_string), fmt::arg("artist", getArtistStr(info, true)),
         fmt::arg("title", getTitleStr(info, true)), fmt::arg("album", getAlbumStr(info, true)),
-        fmt::arg("length", getLengthStr(info, false)),
+        fmt::arg("length", length), fmt::arg("position", position),
         fmt::arg("dynamic", getDynamicStr(info, true, true)),
         fmt::arg("player_icon", getIcon(config_["player-icons"], info.name)),
         fmt::arg("status_icon", getIcon(config_["status-icons"], info.status_string)));
@@ -531,7 +684,7 @@ auto Mpris::update() -> void {
           fmt::arg("artist", getArtistStr(info, tooltip_len_limits_)),
           fmt::arg("title", getTitleStr(info, tooltip_len_limits_)),
           fmt::arg("album", getAlbumStr(info, tooltip_len_limits_)),
-          fmt::arg("length", getLengthStr(info, false)),
+          fmt::arg("length", tooltipLength), fmt::arg("position", tooltipPosition),
           fmt::arg("dynamic", getDynamicStr(info, tooltip_len_limits_, false)),
           fmt::arg("player_icon", getIcon(config_["player-icons"], info.name)),
           fmt::arg("status_icon", getIcon(config_["status-icons"], info.status_string)));
