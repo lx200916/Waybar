@@ -526,7 +526,7 @@ auto Mpris::update() -> void {
   if (tooltipEnabled()) {
     try {
       auto tooltip_text = fmt::format(
-          fmt::runtime(formatstr), fmt::arg("player", info.name),
+          fmt::runtime(tooltipstr), fmt::arg("player", info.name),
           fmt::arg("status", info.status_string),
           fmt::arg("artist", getArtistStr(info, tooltip_len_limits_)),
           fmt::arg("title", getTitleStr(info, tooltip_len_limits_)),

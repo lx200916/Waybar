@@ -40,7 +40,7 @@ The *mpris* module displays currently playing media via libplayerctl.
 
 *tooltip-format*: ++
 	typeof: string ++
-	default: "{dynamic}" ++
+	default: {player} ({status}) {dynamic} ++
 	The tooltip text format.
 
 *tooltip-format-[status]*: ++
