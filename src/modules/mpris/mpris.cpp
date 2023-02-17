@@ -10,6 +10,7 @@ extern "C" {
 #include <playerctl/playerctl.h>
 }
 
+#include <glib.h>
 #include <spdlog/spdlog.h>
 
 namespace waybar::modules::mpris {
@@ -187,98 +188,72 @@ auto Mpris::getIcon(const Json::Value& icons, const std::string& key) -> std::st
   return "";
 }
 
-#include "wide_check.hpp"
+// Wide characters count as two, zero-width characters count as zero
+// Modifies str in-place (unless width = std::string::npos)
+// Returns the total width of the string pre-truncating
+size_t utf8_truncate(std::string& str, size_t width = std::string::npos) {
+  if (str.length() == 0) return 0;
 
-// Japanese characters, emoji, etc are twice as long in mono fonts
-// there are also zero-width characters (diacritics etc)
-auto utf8_char_width(const std::string& str, size_t pos) -> size_t {
-  uint32_t c = (unsigned char)str[pos];
-  if (c <= 127) {
-    // ascii
-    return (c >= 0x20 && c <= 0x7E) ? 1 : 0;
-  } else if ((c & 0xE0) == 0xC0) {
-    if (pos + 1 >= str.length()) return false;
-    c = (str[pos + 1] & 0x3F) | ((c & 0x1F) << 6);
-  } else if ((c & 0xF0) == 0xE0) {
-    if (pos + 2 >= str.length()) return false;
-    c = (str[pos + 2] & 0x3F) | ((str[pos + 1] & 0x3F) << 6) | ((c & 0x1F) << 12);
-  } else if ((c & 0xF8) == 0xF0) {
-    if (pos + 3 >= str.length()) return false;
-    c = (str[pos + 3] & 0x3F) | ((str[pos + 2] & 0x3F) << 6) | ((str[pos + 1] & 0x3F) << 12) |
-        ((c & 0x1F) << 18);
-  }
-  return char_width(c);
-}
+  const gchar* trunc_end = nullptr;
 
-auto utf8_length(const std::string& str) -> size_t {
-  size_t i = 0, len = 0;
-  for (i = len = 0; i < str.length(); i++) {
-    unsigned char c = (unsigned char)str[i];
-    len += utf8_char_width(str, i);
-    if (c <= 127) {
-      continue;  // ascii
-    } else if ((c & 0xE0) == 0xC0) {
-      i += 1;
-    } else if ((c & 0xF0) == 0xE0) {
-      i += 2;
-    } else if ((c & 0xF8) == 0xF0) {
-      i += 3;
-    } else {
-      return str.length();  // invalid utf8
+  size_t total_width = 0;
+
+  for (gchar *data = str.data(), *end = data + str.size(); data;) {
+    gunichar c = g_utf8_get_char_validated(data, end - data);
+    if (c == -1 || c == -2) {
+      // invalid unicode, treat string as ascii
+      if (width != std::string::npos && str.length() > width) str.resize(width);
+      return str.length();
+    } else if (g_unichar_iswide(c)) {
+      total_width += 2;
+    } else if (!g_unichar_iszerowidth(c)) {
+      total_width += 1;
     }
+
+    data = g_utf8_find_next_char(data, end);
+    if (width != std::string::npos && total_width <= width) trunc_end = data;
   }
-  return len;
+
+  if (trunc_end) str.resize(trunc_end - str.data());
+
+  return total_width;
 }
 
-std::string utf8_truncate(const std::string& str, size_t len) {
-  if (len == 0) return std::string();
-  if (len == std::string::npos) return str;
-  size_t pos = std::string::npos;
-  size_t i = 0, u = 0;
-  for (i = u = 0; i < str.length(); i++) {
-    if (u <= len) pos = i;
-    u += utf8_char_width(str, i);
-    unsigned char c = (unsigned char)str[i];
-    if (c <= 127) {
-      continue;  // ascii
-    } else if ((c & 0xE0) == 0xC0) {
-      i += 1;
-    } else if ((c & 0xF0) == 0xE0) {
-      i += 2;
-    } else if ((c & 0xF8) == 0xF0) {
-      i += 3;
-    } else {
-      return str.substr(0, len);  // invalid utf8
-    }
-  }
-  if (u <= len) pos = i;
-  return str.substr(0, pos);
-}
+size_t utf8_width(const std::string& str) { return utf8_truncate(const_cast<std::string&>(str)); }
 
-auto truncate(const std::string& s, const std::string& ellipsis, size_t max_len) -> std::string {
-  if (max_len == 0) return std::string();
-  size_t len = utf8_length(s);
+void truncate(std::string& s, const std::string& ellipsis, size_t max_len) {
+  if (max_len == 0) {
+    s.resize(0);
+    return;
+  }
+  size_t len = utf8_truncate(s, max_len);
   if (len > max_len) {
-    size_t ellipsis_len = utf8_length(ellipsis);
-    return (max_len >= ellipsis_len) ? utf8_truncate(s, max_len - ellipsis_len) + ellipsis
-                                     : std::string();
+    size_t ellipsis_len = utf8_width(ellipsis);
+    if (max_len >= ellipsis_len) {
+      if (ellipsis_len) utf8_truncate(s, max_len - ellipsis_len);
+      s += ellipsis;
+    } else {
+      s.resize(0);
+    }
   }
-  return s;
 }
 
 auto Mpris::getArtistStr(const PlayerInfo& info, bool truncated) -> std::string {
   std::string artist = info.artist.value_or(std::string());
-  return (truncated && artist_len_ >= 0) ? truncate(artist, ellipsis_, artist_len_) : artist;
+  if (truncated && artist_len_ >= 0) truncate(artist, ellipsis_, artist_len_);
+  return artist;
 }
 
 auto Mpris::getAlbumStr(const PlayerInfo& info, bool truncated) -> std::string {
   std::string album = info.album.value_or(std::string());
-  return (truncated && album_len_ >= 0) ? truncate(album, ellipsis_, album_len_) : album;
+  if (truncated && album_len_ >= 0) truncate(album, ellipsis_, album_len_);
+  return album;
 }
 
 auto Mpris::getTitleStr(const PlayerInfo& info, bool truncated) -> std::string {
   std::string title = info.title.value_or(std::string());
-  return (truncated && title_len_ >= 0) ? truncate(title, ellipsis_, title_len_) : title;
+  if (truncated && title_len_ >= 0) truncate(title, ellipsis_, title_len_);
+  return title;
 }
 
 auto Mpris::getLengthStr(const PlayerInfo& info, bool truncated) -> std::string {
@@ -305,9 +280,9 @@ auto Mpris::getDynamicStr(const PlayerInfo& info, bool truncated, bool html) -> 
   // keep position format same as length format
   std::string position = getPositionStr(info, truncated && truncate_hours_ && length.length() < 6);
 
-  size_t artistLen = utf8_length(artist);
-  size_t albumLen = utf8_length(album);
-  size_t titleLen = utf8_length(title);
+  size_t artistLen = utf8_width(artist);
+  size_t albumLen = utf8_width(album);
+  size_t titleLen = utf8_width(title);
   size_t lengthLen = length.length();
   size_t posLen = position.length();
 
