@@ -187,13 +187,15 @@ auto Mpris::getIcon(const Json::Value& icons, const std::string& key) -> std::st
   return "";
 }
 
-#include "wide_check.h"
+#include "wide_check.hpp"
 
 // Japanese characters, emoji, etc are twice as long in mono fonts
-auto utf8_char_wide(const std::string& str, size_t pos) -> bool {
+// there are also zero-width characters (diacritics etc)
+auto utf8_char_width(const std::string& str, size_t pos) -> size_t {
   uint32_t c = (unsigned char)str[pos];
   if (c <= 127) {
-    return false;
+    // ascii
+    return (c >= 0x20 && c <= 0x7E) ? 1 : 0;
   } else if ((c & 0xE0) == 0xC0) {
     if (pos + 1 >= str.length()) return false;
     c = (str[pos + 1] & 0x3F) | ((c & 0x1F) << 6);
@@ -205,14 +207,14 @@ auto utf8_char_wide(const std::string& str, size_t pos) -> bool {
     c = (str[pos + 3] & 0x3F) | ((str[pos + 2] & 0x3F) << 6) | ((str[pos + 1] & 0x3F) << 12) |
         ((c & 0x1F) << 18);
   }
-  return char_is_wide(c);
+  return char_width(c);
 }
 
 auto utf8_length(const std::string& str) -> size_t {
   size_t i = 0, len = 0;
   for (i = len = 0; i < str.length(); i++) {
     unsigned char c = (unsigned char)str[i];
-    len += utf8_char_wide(str, i) ? 2 : 1;
+    len += utf8_char_width(str, i);
     if (c <= 127) {
       continue;  // ascii
     } else if ((c & 0xE0) == 0xC0) {
@@ -235,8 +237,7 @@ std::string utf8_truncate(const std::string& str, size_t len) {
   size_t i = 0, u = 0;
   for (i = u = 0; i < str.length(); i++) {
     if (u <= len) pos = i;
-    u += utf8_char_wide(str, i) ? 2 : 1;
-    if (u > len) break;
+    u += utf8_char_width(str, i);
     unsigned char c = (unsigned char)str[i];
     if (c <= 127) {
       continue;  // ascii
