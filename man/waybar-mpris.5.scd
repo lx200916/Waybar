@@ -70,7 +70,7 @@ The *mpris* module displays currently playing media via libplayerctl.
 
 *dynamic-priority* ++ 
 	typeof: []string ++
-	default: ["title", "length", "artist", "album"]
+	default: ["title", "length", "position", "artist", "album"]
 	Priority of the tags when truncating the Dynamic tag (absence in this
 	list means force inclusion).
 
