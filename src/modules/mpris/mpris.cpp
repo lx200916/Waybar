@@ -206,7 +206,7 @@ size_t utf8_truncate(std::string& str, size_t width = std::string::npos) {
       return str.length();
     } else if (g_unichar_iswide(c)) {
       total_width += 2;
-    } else if (!g_unichar_iszerowidth(c)) {
+    } else if (!g_unichar_iszerowidth(c) && c != 0xAD) { // neither zero-width nor soft hyphen
       total_width += 1;
     }
 
